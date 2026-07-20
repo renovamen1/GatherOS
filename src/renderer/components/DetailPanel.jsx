@@ -1,8 +1,9 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { Info as InfoIcon, Layers as LayersIcon } from 'lucide-react';
+import { Info as InfoIcon, Layers as LayersIcon, ExternalLink } from 'lucide-react';
 import styles from './DetailPanel.module.css';
 import { fileUrl } from '../lib/fileUrl.js';
+import { tweetMediaItems } from '../lib/tweetMedia.js';
 import ContextMenu from './ContextMenu.jsx';
 import TagSuggestions from './TagSuggestions.jsx';
 import { fuzzyMatch } from '../lib/fuzzy.js';
@@ -75,17 +76,6 @@ function formatRelativeDate(ts) {
   return formatDate(ts);
 }
 
-function formatAbsoluteDate(ts) {
-  if (!ts) return '';
-  return new Date(ts).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
-
 function formatBytes(n) {
   if (!n) return '';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -135,6 +125,55 @@ function ExternalLinkIcon() {
   );
 }
 
+function XGlyphIcon() {
+  return (
+    <svg
+      viewBox="0 0 1200 1227"
+      width="14"
+      height="14"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M714 519L1161 0h-106L667 451 357 0H0l469 682L0 1226h106l410-476 327 476h357L714 519zM569 688l-47-68L144 80h163l305 436 48 68 396 567H892L569 688z" />
+    </svg>
+  );
+}
+
+function InstagramGlyphIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect width="20" height="20" x="2" y="2" rx="5" />
+      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+    </svg>
+  );
+}
+
+function twimgVariant(url, name) {
+  try {
+    const u = new URL(url);
+    u.searchParams.set('name', name);
+    if (!u.searchParams.has('format')) {
+      u.searchParams.set('format', 'jpg');
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+function formatAbsoluteDate(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 export default function DetailPanel({
   record,
   allCollections = [],
@@ -149,9 +188,22 @@ export default function DetailPanel({
   onOpenSave,
   onGenerateVariant,
   onOpenSpace,
+  altImageIdx = 0,
+  onAltImageIdxChange,
 }) {
+  const tweetMeta = useMemo(() => {
+    if (!record?.tweet_meta) return null;
+    try { return JSON.parse(record.tweet_meta); }
+    catch { return null; }
+  }, [record?.tweet_meta]);
+  const igSource = record?.source === 'instagram';
+  const sourceDomain = (() => {
+    try { return new URL(record?.source_url).hostname.replace(/^www\./, ''); }
+    catch { return ''; }
+  })();
   const src = fileUrl(record.file_path);
   const typeLabel = fileTypeLabel(record.file_path);
+  const isTextTweet = record?.kind === 'tweet' && !!tweetMeta;
   const [copiedColor, setCopiedColor] = useState(null);
   const imageRef = useRef(null);
   const previewWrapRef = useRef(null);
@@ -641,6 +693,7 @@ export default function DetailPanel({
         document.body,
       )}
 
+      {!isTextTweet && (
       <div
         className={styles.preview}
         onMouseMove={handleTiltMove}
@@ -656,7 +709,9 @@ export default function DetailPanel({
           >
             <img
               ref={imageRef}
-              src={src}
+              src={record.kind === 'video' && record.thumb_path
+                ? fileUrl(record.thumb_path)
+                : src}
               className={styles.image}
               alt={record.title || ''}
               draggable={false}
@@ -697,6 +752,7 @@ export default function DetailPanel({
           </button>
         )}
       </div>
+      )}
 
       <div className={styles.metaEditSection}>
         <label className={styles.metaField}>
@@ -757,6 +813,120 @@ export default function DetailPanel({
             )}
           </div>
         </label>
+        {tweetMeta && (
+          <div className={styles.tweetCard}>
+            <div className={styles.tweetCardHeader}>
+              <div className={styles.tweetAuthorText}>
+                {tweetMeta.authorName && (
+                  <span className={styles.tweetName}>{tweetMeta.authorName}</span>
+                )}
+                {tweetMeta.authorHandle && (
+                  <span className={styles.tweetHandle}>{tweetMeta.authorHandle}</span>
+                )}
+              </div>
+            </div>
+
+            {tweetMeta.caption && (
+              <div className={styles.tweetCaption}>{tweetMeta.caption}</div>
+            )}
+
+            {tweetMeta.quoted && (tweetMeta.quoted.caption || tweetMeta.quoted.authorName) && (
+              <div className={styles.tweetQuoted}>
+                <div className={styles.tweetQuotedHead}>
+                  {tweetMeta.quoted.authorName && (
+                    <span className={styles.tweetQuotedName}>{tweetMeta.quoted.authorName}</span>
+                  )}
+                  {tweetMeta.quoted.authorHandle && (
+                    <span className={styles.tweetQuotedHandle}>{tweetMeta.quoted.authorHandle}</span>
+                  )}
+                </div>
+                {tweetMeta.quoted.caption && (
+                  <div className={styles.tweetQuotedText}>{tweetMeta.quoted.caption}</div>
+                )}
+                {Array.isArray(tweetMeta.quoted.imageUrls) && tweetMeta.quoted.imageUrls.length > 0 && (
+                  <img
+                    className={styles.tweetQuotedImg}
+                    src={tweetMeta.quoted.imageUrls[0]}
+                    alt=""
+                    draggable={false}
+                    loading="lazy"
+                  />
+                )}
+              </div>
+            )}
+
+            {(() => {
+              const items = tweetMediaItems(record, tweetMeta);
+              if (items.length <= 1) return null;
+              const n = items.length;
+              const layout = n === 2 ? styles.thumbsTwo
+                : n === 3 ? styles.thumbsThree
+                  : styles.thumbsFour;
+              const visible = items.slice(0, 4);
+              const extra = n - 4;
+              return (
+                <div className={`${styles.tweetThumbs} ${layout}`}>
+                  {visible.map((m, i) => {
+                    const thumbSrc = m.type === 'video'
+                      ? (m.primaryLocal || !m.poster
+                          ? fileUrl(record.thumb_path || record.file_path)
+                          : m.poster)
+                      : (m.primary ? fileUrl(record.thumb_path || record.file_path) : m.url);
+                    const isOverflow = i === 3 && extra > 0;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        className={[
+                          styles.tweetThumb,
+                          i === altImageIdx && styles.tweetThumbActive,
+                        ].filter(Boolean).join(' ')}
+                        onClick={() => onAltImageIdxChange?.(i)}
+                        aria-label={`Show image ${i + 1}`}
+                        aria-pressed={i === altImageIdx}
+                      >
+                        <img
+                          src={thumbSrc}
+                          alt=""
+                          draggable={false}
+                          onError={(e) => {
+                            console.warn('[tweet-card] image failed', e.currentTarget.src);
+                          }}
+                        />
+                        {isOverflow && (
+                          <span className={styles.tweetThumbMore} aria-hidden="true">+{extra}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            <div className={styles.tweetFooter}>
+              <span className={styles.tweetFooterSrc} aria-hidden="true">
+                {igSource ? <InstagramGlyphIcon /> : <XGlyphIcon />}
+              </span>
+              {sourceDomain && <span>{sourceDomain}</span>}
+              <span className={styles.tweetFooterDot} aria-hidden="true">&middot;</span>
+              <span title={formatAbsoluteDate(record.created_at)}>
+                {formatRelativeDate(record.created_at)}
+              </span>
+              {record?.source_url && (
+                <button
+                  type="button"
+                  className={styles.tweetFooterOpen}
+                  onClick={() => window.moodmark?.shell?.openUrl?.(record.source_url)}
+                  title={igSource ? 'Open on Instagram' : 'Open on X'}
+                >
+                  Open
+                  <ExternalLink size={12} strokeWidth={1.9} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {(editingNotes || notesDraft) ? (
           <label className={styles.metaField}>
             <span className={styles.metaFieldLabel}>Note</span>

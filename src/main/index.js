@@ -7,6 +7,7 @@ const {
   nativeImage,
   nativeTheme,
   protocol,
+  session,
   shell,
 } = require('electron');
 const fs = require('node:fs');
@@ -95,6 +96,7 @@ const { initUpdater } = require('./updater');
 const { getInitialOptions: getWindowInitialOptions, track: trackWindowState } = require('./window-state');
 const libraryRegistry = require('./library-registry');
 const { reopenDatabase } = require('./db');
+const nativeBridge = require('./nativeBridge');
 
 const isDev = !app.isPackaged;
 const DEV_URL = 'http://localhost:5173';
@@ -231,6 +233,7 @@ protocol.registerSchemesAsPrivileged([
       supportFetchAPI: true,
       stream: true,
       bypassCSP: true,
+      corsEnabled: true,
     },
   },
 ]);
@@ -242,6 +245,10 @@ const CONTENT_TYPES = {
   gif: 'image/gif',
   webp: 'image/webp',
   avif: 'image/avif',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+  m4v: 'video/mp4',
 };
 
 function registerMoodmarkFileProtocol() {
@@ -260,8 +267,53 @@ function registerMoodmarkFileProtocol() {
 
     const ext = path.extname(abs).slice(1).toLowerCase();
     const contentType = CONTENT_TYPES[ext] || 'application/octet-stream';
+    const stat = fs.statSync(abs);
+    const fileSize = stat.size;
+
+    // CORS allow-all so an <img crossOrigin="anonymous"> loaded from
+    // this scheme produces an un-tainted canvas. The FocusedView
+    // eyedropper calls getImageData() against the focused image,
+    // which throws SecurityError on a tainted canvas. Same scheme is
+    // used everywhere in-app so allow-all is the right answer; the
+    // renderer is the only consumer.
+    const corsHeader = { 'Access-Control-Allow-Origin': '*' };
+
+    // Honour Range requests for streaming media. HTML5 <video> can't
+    // seek without 206 Partial Content responses — without this, the
+    // user can play a video bookmark linearly but dragging the
+    // timeline scrubber does nothing because the browser asks for a
+    // byte range and we hand back the full file.
+    const range = req.headers.get('range');
+    if (range && fileSize > 0) {
+      const match = range.match(/bytes=(\d*)-(\d*)/);
+      if (match) {
+        const start = match[1] ? parseInt(match[1], 10) : 0;
+        const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+        if (start >= 0 && end < fileSize && start <= end) {
+          const chunkSize = end - start + 1;
+          const stream = fs.createReadStream(abs, { start, end });
+          return new Response(Readable.toWeb(stream), {
+            status: 206,
+            headers: {
+              'Content-Type': contentType,
+              'Content-Length': String(chunkSize),
+              'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+              'Accept-Ranges': 'bytes',
+              ...corsHeader,
+            },
+          });
+        }
+      }
+    }
+
     return new Response(Readable.toWeb(fs.createReadStream(abs)), {
-      headers: { 'Content-Type': contentType },
+      status: 200,
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(fileSize),
+        'Accept-Ranges': 'bytes',
+        ...corsHeader,
+      },
     });
   });
 }
@@ -652,6 +704,7 @@ app.whenReady().then(() => {
   ensureStorageDirs();
   initDatabase();
   registerIpcHandlers();
+  nativeBridge.start();
   createMainWindow();
   // Apply the macOS application menu now that mainWindow exists so
   // the menu can target webContents.send() at the right window.
@@ -735,6 +788,7 @@ app.on('before-quit', () => {
 });
 
 app.on('will-quit', () => {
+  nativeBridge.stop();
   unregisterCaptureHotkey();
   closeDatabase();
 });

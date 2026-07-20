@@ -31,6 +31,7 @@ const { setToastInteractive, onToastsEmpty } = require('./toast-window');
 const settings = require('./settings');
 const { quitAndInstall } = require('./updater');
 const { ingestZip } = require('./zipImport');
+const { importUrls } = require('./importUrls');
 const {
   hasSession: hasAiSession,
   autoTagImage,
@@ -346,29 +347,13 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('saves:drop-url', async (_e, payload) => {
-    const candidates = Array.isArray(payload?.urls)
+    const urls = Array.isArray(payload?.urls)
       ? payload.urls
       : Array.isArray(payload)
         ? payload
         : [typeof payload === 'string' ? payload : payload?.url].filter(Boolean);
-    if (candidates.length === 0) throw new Error('drop-url called without any URLs');
-
-    const errors = [];
-    for (const url of candidates) {
-      try {
-        const imgData = await saveImageFromUrl(url);
-        if (imgData.duplicateOf) {
-          notifyDuplicate(imgData.existing);
-          return imgData.existing;
-        }
-        const record = insertSave(imgData);
-        notifySaved(record);
-        return record;
-      } catch (err) {
-        errors.push(`${url}: ${err.message}`);
-      }
-    }
-    throw new Error(`All ${candidates.length} URL(s) failed:\n${errors.join('\n')}`);
+    const result = await importUrls(urls);
+    return result.records[0].record;
   });
 
   ipcMain.handle('collections:get-all', () => getAllCollections());

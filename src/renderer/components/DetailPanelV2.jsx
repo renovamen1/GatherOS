@@ -661,7 +661,9 @@ export default function DetailPanel({
           >
             <img
               ref={imageRef}
-              src={src}
+              src={record.kind === 'video' && record.thumb_path
+                ? fileUrl(record.thumb_path)
+                : src}
               className={styles.image}
               alt={record.title || ''}
               draggable={false}

@@ -11,6 +11,13 @@
   font: inherit;
   animation: cardIn var(--dur-medium) var(--ease-out) both;
   animation-delay: var(--card-stagger, 0ms);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 360px;
+}
+
+.card:hover,
+.selected {
+  content-visibility: visible;
 }
 
 @keyframes cardIn {
@@ -18,10 +25,6 @@
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* Brief springy bounce when a drag is dropped on nothing.
-   var(--ease-bounce) overshoots past 1 so the card "snaps back"
-   rather than just resetting — the rebound is what makes it
-   read as tactile instead of mechanical. */
 .springback {
   animation: cardSpringback var(--dur-pronounced) var(--ease-bounce);
 }
@@ -33,7 +36,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .card { animation: none; }
+  .card,
+  .fresh { animation: none; }
 }
 
 .frame {
@@ -60,6 +64,26 @@
   outline-offset: 1px;
 }
 
+.frameTweet {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.05);
+}
+
+:root[data-theme="dark"] .frameTweet {
+  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.45);
+}
+
+.card:hover .frameTweet {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px 0 rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="dark"] .card:hover .frameTweet {
+  box-shadow: 0 8px 28px 0 rgba(0, 0, 0, 0.55);
+}
+
 .image {
   position: absolute;
   inset: 0;
@@ -73,22 +97,27 @@
   position: absolute;
   top: 8px;
   left: 8px;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: var(--radius-circle);
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
-  border: 0.5px solid rgba(0, 0, 0, 0.12);
-  color: var(--text-primary);
+  background: rgba(20, 20, 22, 0.4);
+  backdrop-filter: blur(14px) saturate(1.8);
+  -webkit-backdrop-filter: blur(14px) saturate(1.8);
+  border: none;
+  color: rgba(255, 255, 255, 0.95);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   opacity: 0;
   padding: 0;
-  transition: opacity var(--dur-instant) ease, background var(--dur-instant) ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 0 0 1.5px rgba(255, 255, 255, 0.55),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+  transition:
+    opacity var(--dur-instant) ease,
+    background var(--dur-instant) ease,
+    transform var(--dur-instant) ease;
 }
 
 .card:hover .checkbox,
@@ -99,44 +128,48 @@
 
 .checkboxOn {
   background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: rgba(255, 255, 255, 0.25);
+  color: var(--text-on-accent);
+  box-shadow:
+    0 0 0 1.5px rgba(255, 255, 255, 1),
+    0 1px 2px rgba(0, 0, 0, 0.28),
+    inset 0 0.5px 0 0 rgba(255, 255, 255, 0.25);
 }
 
-/* In dark mode the --accent token is white, so the white "check"
-   glyph disappeared on top of a white pill. Flip the check stroke to
-   the dark surface tone so the marker remains visible. */
 :root[data-theme="dark"] .checkboxOn {
   color: var(--surface-1);
 }
 
 .checkbox:hover:not(.checkboxOn) {
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(20, 20, 22, 0.55);
+  transform: scale(1.05);
 }
 
-/* Peek trigger — bottom-right counterpart to the checkbox. Same
-   liquid-glass surface; reveals on card hover, opens a lightbox on
-   icon hover. */
 .peekBtn {
   position: absolute;
   bottom: 8px;
   right: 8px;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: var(--radius-circle);
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
-  border: 0.5px solid rgba(0, 0, 0, 0.12);
-  color: var(--text-primary);
+  background: rgba(20, 20, 22, 0.4);
+  backdrop-filter: blur(14px) saturate(1.8);
+  -webkit-backdrop-filter: blur(14px) saturate(1.8);
+  border: none;
+  color: rgba(255, 255, 255, 0.95);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   opacity: 0;
   padding: 0;
-  transition: opacity var(--dur-instant) ease, background var(--dur-instant) ease, transform var(--dur-instant) ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: none;
+  transition:
+    opacity var(--dur-instant) ease,
+    background var(--dur-instant) ease,
+    transform var(--dur-instant) ease;
 }
 
 .peekBtn svg {
@@ -149,14 +182,10 @@
 }
 
 .peekBtn:hover {
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(20, 20, 22, 0.55);
   transform: scale(1.06);
 }
 
-/* ── Lightbox preview ────────────────────────────────────────────────
-   Spotlight focus view — full-viewport dim/blur backdrop with the
-   image floated centered above it. Portaled to document.body so it
-   escapes the card's overflow:hidden frame. */
 .lightbox {
   position: fixed;
   inset: 0;
@@ -172,8 +201,6 @@
 }
 
 .lightboxImage {
-  /* Capped at 80vw / 80vh so the image always sits inside the
-     viewport with breathing room around it, regardless of aspect. */
   max-width: 80vw;
   max-height: 80vh;
   width: auto;
@@ -183,9 +210,6 @@
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.2),
     0 30px 80px rgba(0, 0, 0, 0.45);
-  /* The backdrop is non-interactive so it can't intercept the leave
-     event; the image itself is the hover target that keeps the
-     lightbox open. */
   pointer-events: auto;
   animation: lightboxImageIn var(--dur-medium) var(--ease-out);
 }
@@ -200,120 +224,176 @@
   to   { opacity: 1; transform: scale(1); }
 }
 
-/* "Just arrived" affordance — runs once when a save lands in the
-   grid. A soft white sheen sweeps diagonally across the frame, with
-   a brief accent-color ring fading out around it. */
-.fresh .frame {
-  animation: freshRing 1.5s ease-out;
+.fresh {
+  animation: freshRise 0.55s var(--ease-out) both;
+  animation-delay: 0ms;
 }
 
-.fresh .frame::after {
-  content: '';
+@keyframes freshRise {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.highlight .frame {
+  animation: cardReveal 2.2s var(--ease-out) both;
+}
+
+@keyframes cardReveal {
+  0%   { box-shadow: 0 0 0 3px var(--accent, #5b8cff), 0 0 22px 4px rgba(91, 140, 255, 0.55); }
+  15%  { box-shadow: 0 0 0 3px var(--accent, #5b8cff), 0 0 22px 4px rgba(91, 140, 255, 0.55); }
+  100% { box-shadow: 0 0 0 0 rgba(91, 140, 255, 0); }
+}
+
+.sourceBadge {
   position: absolute;
-  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-circle);
+  background: rgba(20, 20, 22, 0.4);
+  backdrop-filter: blur(14px) saturate(1.8);
+  -webkit-backdrop-filter: blur(14px) saturate(1.8);
+  border: none;
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow: none;
   pointer-events: none;
-  background: linear-gradient(
-    100deg,
-    transparent 0%,
-    transparent 35%,
-    rgba(255, 255, 255, 0.55) 50%,
-    transparent 65%,
-    transparent 100%
-  );
-  background-size: 250% 100%;
-  background-position: -50% 0;
-  animation: freshShimmer 1.5s ease-out;
-  border-radius: inherit;
-  mix-blend-mode: screen;
+  z-index: 2;
+  bottom: 8px;
+  left: 8px;
 }
 
-@keyframes freshShimmer {
-  from { background-position: -50% 0; }
-  to   { background-position: 150% 0; }
-}
-
-@keyframes freshRing {
-  0%   { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.55), 0 0 24px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(0, 0, 0, 0.05); }
-  60%  { box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.0),  0 0 24px rgba(0, 0, 0, 0.10), inset 0 0 0 1px rgba(0, 0, 0, 0.05); }
-  100% { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(0, 0, 0, 0.05); }
-}
-
-
-/* ── Generation placeholder ──────────────────────────────────────────
-   While an OpenAI variant is in flight, App.jsx prepends a synthetic
-   "pending" save to the masonry. This card shows the source thumb
-   at low opacity with a centered dots indicator + label — visual
-   confirmation the request is running, without leaving the user
-   guessing where the result will land. */
-
-.cardPending {
-  cursor: progress;
-  pointer-events: none;
-}
-
-/* Source thumb sits at full opacity but heavily blurred — the
-   blur alone signals "actively composing", no flat dim needed. */
-.imagePending {
-  opacity: 1;
-  filter: saturate(0.6) blur(18px);
-  transform: scale(1.08);
-}
-
-/* Flat dark overlay sits above the blurred image so the dot
-   pattern reads against a uniform tone instead of competing with
-   the blur's own midtones. */
-.pendingOverlay {
+.videoBadge {
   position: absolute;
-  inset: 0;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-circle);
+  background: rgba(20, 20, 22, 0.4);
+  backdrop-filter: blur(14px) saturate(1.8);
+  -webkit-backdrop-filter: blur(14px) saturate(1.8);
+  border: none;
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow: none;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.countBadge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  height: 24px;
+  padding: 0 3px;
+  border-radius: var(--radius-pill);
+  background: rgba(20, 20, 22, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.countBadge svg {
+  width: 12px;
+  height: 12px;
+}
+
+.countMain {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+}
+
+.countArrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  height: 18px;
+  opacity: 0;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.5);
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
   pointer-events: none;
+  transition: width 0.16s ease, opacity 0.16s ease, background 0.12s ease;
+}
+.countArrow:hover { background: rgba(255, 255, 255, 0.22); }
+.countArrow:active { transform: scale(0.9); }
+.frame:hover .countArrow {
+  width: 18px;
+  opacity: 1;
+  pointer-events: auto;
 }
 
-/* Dot field — a CSS radial-gradient tiled at 14px renders as a
-   uniform grid of small white dots. A diagonal linear-gradient
-   mask larger than the element shifts position across the layer,
-   creating a brighter "wave" band that traverses the dots while
-   leaving the rest dimmer. Pure CSS, no per-dot DOM nodes. */
-.pendingDots {
+.articleOverlay {
   position: absolute;
-  inset: 0;
-  z-index: 1;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 30px 12px 12px;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.82) 0%,
+    rgba(0, 0, 0, 0.6) 45%,
+    rgba(0, 0, 0, 0) 100%
+  );
   pointer-events: none;
-  background-image: radial-gradient(
-    circle,
-    rgba(255, 255, 255, 0.95) 1.2px,
-    transparent 1.6px
-  );
-  background-size: 14px 14px;
-  -webkit-mask-image: linear-gradient(
-    115deg,
-    rgba(0, 0, 0, 0.18) 0%,
-    rgba(0, 0, 0, 0.18) 35%,
-    rgba(0, 0, 0, 1) 50%,
-    rgba(0, 0, 0, 0.18) 65%,
-    rgba(0, 0, 0, 0.18) 100%
-  );
-  mask-image: linear-gradient(
-    115deg,
-    rgba(0, 0, 0, 0.18) 0%,
-    rgba(0, 0, 0, 0.18) 35%,
-    rgba(0, 0, 0, 1) 50%,
-    rgba(0, 0, 0, 0.18) 65%,
-    rgba(0, 0, 0, 0.18) 100%
-  );
-  -webkit-mask-size: 260% 260%;
-  mask-size: 260% 260%;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  animation: pendingDotWave 3.2s ease-in-out infinite;
 }
 
-@keyframes pendingDotWave {
-  0%   { -webkit-mask-position: 100% 100%; mask-position: 100% 100%; }
-  100% { -webkit-mask-position: 0% 0%;     mask-position: 0% 0%; }
+.articleBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: 2px 7px 2px 6px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .pendingDots { animation: none; -webkit-mask-image: none; mask-image: none; opacity: 0.45; }
+.articleTitle {
+  color: #fff;
+  font-size: var(--text-md);
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.articleExcerpt {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

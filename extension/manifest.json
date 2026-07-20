@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "GatherOS Companion",
+  "version": "1.0.0",
+  "description": "Save images to your local GatherOS library.",
+  "permissions": [
+    "nativeMessaging",
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.instagram.com/*",
+    "https://*.x.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.instagram.com/*",
+        "https://*.x.com/*"
+      ],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

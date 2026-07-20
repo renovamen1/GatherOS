@@ -1,13 +1,42 @@
 .focused {
+  position: relative;
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  /* Soft fade-in so the jump from grid → focused (and back) reads
-     as a transition rather than a hard cut. Skipped when the View
-     Transitions API is driving a morph (.focusedMorphing) so its
-     initial opacity:0 frame doesn't get baked into the new snapshot. */
+  --titlebar-left-pad: 104px;
+  --text-primary: rgba(255, 255, 255, 0.95);
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-tertiary: rgba(255, 255, 255, 0.55);
+  --accent: rgba(255, 255, 255, 0.95);
+  --accent-bg-soft: rgba(255, 255, 255, 0.1);
+  --accent-bg-medium: rgba(255, 255, 255, 0.18);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --hover-bg: rgba(255, 255, 255, 0.12);
+  --hover-bg-soft: rgba(255, 255, 255, 0.08);
+  --ai-tint: rgba(255, 255, 255, 0.95);
+  --ai-tint-bg: rgba(255, 255, 255, 0.1);
+  --ai-tint-border: rgba(255, 255, 255, 0.12);
   animation: focusedIn var(--dur-medium) var(--ease-out);
+}
+
+.focused::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0.62)),
+    var(--stage-bg, none) center / cover no-repeat;
+  filter: blur(60px) saturate(1.2);
+  transform: scale(1.18);
+  pointer-events: none;
+}
+
+.focused > * {
+  position: relative;
+  z-index: 1;
 }
 
 .focused.focusedMorphing {
@@ -27,11 +56,13 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 38px 16px 10px var(--titlebar-left-pad, 16px);
-  background: var(--content-bg);
-  border-bottom: 1px solid var(--border);
+  padding: 10px 16px 8px var(--titlebar-left-pad, 16px);
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex: 0 0 auto;
   -webkit-app-region: drag;
+  position: relative;
+  z-index: 80;
 }
 
 .actions {
@@ -64,7 +95,7 @@
   justify-content: center;
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.7);
   border-radius: var(--radius-md);
   cursor: pointer;
   padding: 0;
@@ -78,48 +109,91 @@
 }
 
 .iconBtn:hover {
-  background: var(--hover-bg);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.95);
 }
 
 .iconBtn:active {
-  background: var(--active-bg);
+  background: rgba(255, 255, 255, 0.2);
 }
 
-/* Active state when the eyedropper is armed — same dark fill we
-   use everywhere else for "this mode is on." */
 .iconBtnActive,
 .iconBtnActive:hover {
-  background: var(--text-primary);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
-/* Crosshair cursor on the focused image while picking. Live tooltip
-   floats over the cursor via a portaled div (.cursorTooltip below). */
 .stagePicking .image {
-  cursor: crosshair;
+  cursor: none;
 }
 
-.cursorTooltip {
+.loupe {
+  --loupe-size: 132px;
   position: fixed;
+  z-index: 999999;
+  pointer-events: none;
+  width: var(--loupe-size);
+  height: var(--loupe-size);
+  transform: translate(-50%, -50%);
+}
+
+.loupeDisc {
+  position: relative;
+  width: var(--loupe-size);
+  height: var(--loupe-size);
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--surface-1);
+  box-shadow:
+    0 0 0 3px var(--loupe-color),
+    0 0 0 4.5px rgba(0, 0, 0, 0.45),
+    0 8px 24px rgba(0, 0, 0, 0.45);
+  transition: box-shadow 140ms ease-out;
+}
+
+.loupeCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  display: block;
+}
+
+.loupeReticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(100% / 15);
+  height: calc(100% / 15);
+  transform: translate(-50%, -50%);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.85),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.95);
+  pointer-events: none;
+}
+
+.loupeLabel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 4px 9px;
   background: var(--tooltip-bg);
   color: var(--tooltip-fg);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   letter-spacing: 0.02em;
-  pointer-events: none;
-  z-index: 999999;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.32);
   white-space: nowrap;
-  transform: translate(-50%, calc(-100% - 14px));
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.32);
 }
 
-.cursorTooltipSwatch {
+.loupeSwatch {
   width: 10px;
   height: 10px;
   border-radius: var(--radius-sm);
@@ -127,10 +201,23 @@
   flex-shrink: 0;
 }
 
-.cursorTooltipCopied {
-  font-family: inherit;
+.loupeCopied .loupeDisc {
+  box-shadow:
+    0 0 0 4px var(--loupe-color),
+    0 0 0 5.5px rgba(0, 0, 0, 0.45),
+    0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.loupeCopiedText {
+  font-family: var(--font-ui);
   letter-spacing: -0.005em;
-  font-weight: 500;
+  font-weight: 600;
+  animation: loupeCopiedPop 200ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+
+@keyframes loupeCopiedPop {
+  from { opacity: 0; transform: scale(0.7); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 .iconBtnDanger:hover {
@@ -192,19 +279,19 @@
   transform: scale(1.1);
 }
 
-/* Bare-icon back button — no container, just the chevron. Same
-   treatment as the prev/next bucket arrows in the Toolbar. */
 .backBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  background: var(--surface-1);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-circle);
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
   flex-shrink: 0;
   -webkit-app-region: no-drag;
@@ -212,8 +299,8 @@
 }
 
 .backBtn:hover {
-  background: var(--hover-bg-soft);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 1);
 }
 
 .backBtn:active {
@@ -234,20 +321,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Right padding clears the floating DetailPanel (300px wide,
-     16px right inset, ~24px breathing) so the image is never
-     drawn behind the overlay. */
   padding: 32px 340px 32px 56px;
   overflow: hidden;
-  background:
-    radial-gradient(ellipse at center, rgba(0, 0, 0, 0.015), transparent 65%),
-    var(--content-bg);
+  background: transparent;
 }
 
 .stageScroll {
   overflow: auto;
   align-items: flex-start;
   justify-content: flex-start;
+}
+
+.tweetStage {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 560px;
 }
 
 .imageWrap {
@@ -259,25 +349,97 @@
 }
 
 .image {
-  /* Fill the .imageWrap so zoom scales the image 1:1 with the
-     slider. With width/height: auto + max-width/height: 100%,
-     the image stuck at its natural pixel size once the wrap grew
-     past 100%, so anything not several × the stage didn't appear
-     to zoom at all. No border-radius / box-shadow here: with
-     object-fit: contain the element box extends beyond the visible
-     image (letterbox bands), and any chrome on the box would draw
-     a frame around the whole stage rather than around the image. */
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 
+.videoStage { position: relative; }
+
+.vControls {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(20, 20, 22, 0.72);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border: 0.5px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  color: rgba(255, 255, 255, 0.95);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+  z-index: 3;
+}
+.videoStage:hover .vControls,
+.vControls[data-paused="true"] {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.vBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.vBtn:hover { background: rgba(255, 255, 255, 0.16); }
+
+.vTime {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+}
+
+.vScrub {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+}
+
+.vScrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.webview {
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  display: inline-flex;
+}
+
 .navHint {
-  /* Center inside the stage's content box (not the box itself).
-     The stage reserves 340px on the right for the floating
-     DetailPanel and 56px on the left for breathing — using those
-     same insets here + margin-inline:auto + width:fit-content
-     parks the pill exactly under the centered image. */
   position: absolute;
   bottom: 18px;
   left: 56px;
@@ -288,18 +450,16 @@
   align-items: center;
   gap: 6px;
   padding: 5px 12px 5px 8px;
-  background: var(--surface-1);
-  border: 1px solid var(--border);
+  background: rgba(20, 20, 22, 0.45);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-pill);
-  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.05);
-  color: var(--text-secondary);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.85);
   font-size: var(--text-xs);
   pointer-events: none;
   user-select: none;
-}
-
-:root[data-theme="dark"] .navHint {
-  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.45);
 }
 
 .kbd {
@@ -309,10 +469,10 @@
   width: 18px;
   height: 18px;
   padding: 0;
-  background: var(--surface-1);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-circle);
   font-family: var(--font-ui);
   font-size: var(--text-xs);
-  color: var(--text-primary);
+  color: rgba(255, 255, 255, 0.95);
 }
