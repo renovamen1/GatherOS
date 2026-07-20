@@ -153,63 +153,10 @@ export default function AppGate() {
     return <App />;
   }
 
-  if (state.status === 'loading') {
-    // Brief — usually just one tick while the cached cache is read.
-    // Render nothing to avoid a flash of the signin screen.
-    return null;
-  }
+  if (state.status === 'loading') return null;
 
-  if (state.status === 'unauth' || state.status === 'error') {
-    // Guest mode: empty library + no session = let them in for one
-    // save. Once guestSaveLanded latches, fall through to signin.
-    if (state.status === 'unauth' && guestSaveCount === 0 && !guestSaveLanded && !signinRequested) {
-      return (
-        <>
-          <App />
-          <DbIntegrityBanner
-            onOpenBackups={() => {
-              window.dispatchEvent(
-                new CustomEvent('moodmark:open-settings', { detail: { drawer: 'data' } }),
-              );
-            }}
-          />
-        </>
-      );
-    }
-    // Either we've already checked and the library has saves, or the
-    // count is mid-flight (null). For null, render nothing for a beat
-    // rather than flashing the signin form.
-    if (state.status === 'unauth' && guestSaveCount === null) return null;
-    // If the gate fired because guestSaveLanded just latched, show
-    // the warmer "save your library" copy. Sign-out / re-launch with
-    // existing saves still gets the cold default headline.
-    const reason = guestSaveLanded ? 'post-save' : undefined;
-    return <SigninScreen onRequestMagicLink={requestMagicLink} reason={reason} />;
-  }
+  const showAccountBanner = !!state?.license && state.status !== 'unauth' && state.status !== 'error';
 
-  if (state.status === 'expired') {
-    return (
-      <PaywallModal
-        license={state.license}
-        onSignOut={signOut}
-        onSubscribe={async (plan) => {
-          // Hosted checkout: main process asks the worker to mint a
-          // checkout URL with our user_id baked in, then opens it in
-          // the user's default browser via shell.openExternal. We
-          // poll license/verify in the background (see effect above)
-          // so the paywall flips off as soon as the webhook lands.
-          const result = await window.moodmark.licensing.openCheckout(plan);
-          if (!result?.ok) {
-            console.error('[paywall] openCheckout failed:', result?.error);
-          }
-        }}
-      />
-    );
-  }
-
-  // 'entitled' or 'offline' — let the app run. Layer the account
-  // banner on top so payment-failed / offline states are surfaced
-  // without blocking the UI.
   return (
     <>
       <App />
@@ -223,10 +170,12 @@ export default function AppGate() {
           );
         }}
       />
-      <AccountBanner
-        license={state.license}
-        onOpenCustomerPortal={() => window.moodmark.licensing.openCustomerPortal()}
-      />
+      {showAccountBanner && (
+        <AccountBanner
+          license={state.license}
+          onOpenCustomerPortal={() => window.moodmark.licensing.openCustomerPortal()}
+        />
+      )}
     </>
   );
 }
