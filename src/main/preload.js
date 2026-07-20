@@ -174,6 +174,7 @@ contextBridge.exposeInMainWorld('moodmark', {
     // on the renderer side anymore.
     hasSession: () => ipcRenderer.invoke('ai:has-session'),
     usage: () => ipcRenderer.invoke('ai:usage'),
+    testTextModel: () => ipcRenderer.invoke('ai:test-text-model'),
     autoTag: (saveId) => ipcRenderer.invoke('ai:auto-tag', saveId),
     generatePrompt: (saveId) => ipcRenderer.invoke('ai:generate-prompt', saveId),
     generateVariant: (saveId, options) => ipcRenderer.invoke('ai:generate-variant', saveId, options),

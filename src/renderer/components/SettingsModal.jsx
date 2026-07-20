@@ -662,9 +662,10 @@ export default function SettingsModal({
   // or a licensing session is present.
   const [hasAi, setHasAi] = useState(false);
   const [usage, setUsage] = useState(null);
-  const [prefs, setPrefs] = useState({ autoNameOnSave: true, theme: 'light', openAIApiKey: '' });
+  const [prefs, setPrefs] = useState({ autoNameOnSave: true, theme: 'light', aiProvider: 'openai', openAIApiKey: '', geminiApiKey: '' });
   const [unindexed, setUnindexed] = useState(0);
   const [reindexState, setReindexState] = useState({ running: false, processed: 0, total: 0 });
+  const [modelTest, setModelTest] = useState({ running: false, message: null });
   const [exportState, setExportState] = useState({ running: false, message: null });
   const [wipeState, setWipeState] = useState({ running: false, message: null });
   const [snapshots, setSnapshots] = useState([]);
@@ -767,6 +768,25 @@ export default function SettingsModal({
     setUnindexed(fresh || 0);
   }
 
+  async function handleTestTextModel() {
+    if (modelTest.running) return;
+    setModelTest({ running: true, message: null });
+    try {
+      if (typeof window.moodmark?.ai?.testTextModel !== 'function') {
+        throw new Error('Restart GatherOS to load the model test feature');
+      }
+      const result = await window.moodmark.ai.testTextModel();
+      setModelTest({
+        running: false,
+        message: result?.ok
+          ? `Connected to ${result.model}`
+          : (result?.error || 'Model test failed'),
+      });
+    } catch (err) {
+      setModelTest({ running: false, message: err?.message || 'Model test failed' });
+    }
+  }
+
   async function togglePref(name) {
     const next = !prefs[name];
     const updated = { ...prefs, [name]: next };
@@ -792,12 +812,16 @@ export default function SettingsModal({
       document.documentElement.setAttribute('data-theme', resolved);
     }
 
-    if (name === 'openAIApiKey') {
+    if (name === 'openAIApiKey' || name === 'geminiApiKey' || name === 'aiProvider') {
       const configured = await window.moodmark.ai.hasSession();
       setHasAi(!!configured);
       onConfiguredChange?.(!!configured);
       const latestUsage = await window.moodmark.ai.usage();
       setUsage(latestUsage && latestUsage.ok ? latestUsage : null);
+      if (name === 'aiProvider') {
+        const count = await window.moodmark.ai.unindexedCount();
+        setUnindexed(count || 0);
+      }
     }
 
     onPrefsChange?.(updated);
@@ -1240,32 +1264,129 @@ export default function SettingsModal({
             <div className={styles.page}>
               <p className={styles.sectionHint}>
                 Auto-tagging, auto-titles, semantic search, and image-prompt
-                generation use OpenAI. Add your own key below for a personal
-                fork, or sign in to use the hosted integration.
+                generation use your selected AI provider. OpenAI can use your
+                personal key or the hosted integration; Gemini requires your own key.
               </p>
 
               <div className={styles.field}>
-                <label className={styles.fieldLabel} htmlFor="openai-api-key">OpenAI API key</label>
+                <label className={styles.fieldLabel} htmlFor="ai-provider">AI provider</label>
+                <select
+                  id="ai-provider"
+                  className={styles.select}
+                  value={prefs.aiProvider || 'openai'}
+                  onChange={(e) => updatePref('aiProvider', e.target.value)}
+                >
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Gemini</option>
+                </select>
+                <span className={styles.fieldHint}>
+                  Changing provider resets visual-search indexes; use Index now below to rebuild them.
+                </span>
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.fieldLabel} htmlFor="ai-api-key">
+                  {prefs.aiProvider === 'gemini' ? 'Gemini API key' : 'OpenAI API key'}
+                </label>
                 <input
-                  id="openai-api-key"
+                  id="ai-api-key"
                   type="password"
                   className={styles.input}
-                  value={prefs.openAIApiKey || ''}
-                  placeholder="sk-..."
+                  value={prefs.aiProvider === 'gemini' ? (prefs.geminiApiKey || '') : (prefs.openAIApiKey || '')}
+                  placeholder={prefs.aiProvider === 'gemini' ? 'AIza...' : 'sk-...'}
                   autoComplete="off"
                   spellCheck={false}
-                  onChange={(e) => setPrefs((prev) => ({ ...prev, openAIApiKey: e.target.value }))}
-                  onBlur={(e) => updatePref('openAIApiKey', e.target.value)}
+                  onChange={(e) => setPrefs((prev) => ({
+                    ...prev,
+                    [prev.aiProvider === 'gemini' ? 'geminiApiKey' : 'openAIApiKey']: e.target.value,
+                  }))}
+                  onBlur={(e) => updatePref(prefs.aiProvider === 'gemini' ? 'geminiApiKey' : 'openAIApiKey', e.target.value)}
                 />
                 <span className={styles.fieldHint}>
                   Stored locally on this device and used only for your own API requests.
                 </span>
               </div>
 
+              {prefs.aiProvider === 'gemini' && (
+                <>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel} htmlFor="gemini-vision-model">Text and vision model</label>
+                    <select
+                      id="gemini-vision-model"
+                      className={styles.select}
+                      value={prefs.geminiVisionModel || 'gemini-3.1-flash-lite'}
+                      onChange={(e) => updatePref('geminiVisionModel', e.target.value)}
+                    >
+                      <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                      <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    </select>
+                    <span className={styles.fieldHint}>
+                      Used for auto-name, auto-tag, OCR, and prompt generation.
+                    </span>
+                  </div>
+
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel} htmlFor="gemini-fallback-model">Fallback models</label>
+                    <select
+                      id="gemini-fallback-model"
+                      className={styles.select}
+                      value={prefs.geminiFallbackModel || ''}
+                      onChange={(e) => updatePref('geminiFallbackModel', e.target.value)}
+                    >
+                      <option value="">No first fallback</option>
+                      <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    </select>
+                    <select
+                      className={styles.select}
+                      value={prefs.geminiSecondFallbackModel || ''}
+                      onChange={(e) => updatePref('geminiSecondFallbackModel', e.target.value)}
+                    >
+                      <option value="">No second fallback</option>
+                      <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    </select>
+                    <span className={styles.fieldHint}>
+                      Tried in order only when a model is rate-limited, out of quota, or temporarily unavailable.
+                    </span>
+                  </div>
+
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel} htmlFor="gemini-image-model">Image variant model</label>
+                    <select
+                      id="gemini-image-model"
+                      className={styles.select}
+                      value={prefs.geminiImageModel || 'gemini-2.5-flash-image'}
+                      onChange={(e) => updatePref('geminiImageModel', e.target.value)}
+                    >
+                      <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
+                      <option value="gemini-3.1-flash-lite-image">Gemini 3.1 Flash Lite Image</option>
+                    </select>
+                    <span className={styles.fieldHint}>
+                      Used only for Generate variant. It requires image-generation quota and is not used for text features.
+                    </span>
+                  </div>
+
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Test text model</label>
+                    <button
+                      type="button"
+                      className={styles.btn}
+                      onClick={handleTestTextModel}
+                      disabled={!hasAi || modelTest.running}
+                    >
+                      {modelTest.running ? 'Testing…' : 'Test connection'}
+                    </button>
+                    {modelTest.message && <span className={styles.fieldHint}>{modelTest.message}</span>}
+                  </div>
+                </>
+              )}
+
               {!hasAi && (
                 <div className={styles.statusRow}>
                   <span className={`${styles.status} ${styles.statusMuted}`}>
-                    Add an API key or sign in to enable AI features
+                    {prefs.aiProvider === 'gemini' ? 'Add a Gemini API key to enable AI features' : 'Add an API key or sign in to enable AI features'}
                   </span>
                 </div>
               )}
@@ -1276,7 +1397,7 @@ export default function SettingsModal({
 
               {hasAi && usage?.byok && (
                 <div className={styles.sectionHint}>
-                  Using your own key. Usage limits are managed by your OpenAI account.
+                  Using your own {prefs.aiProvider === 'gemini' ? 'Gemini' : 'OpenAI'} key. Usage limits are managed by that account.
                 </div>
               )}
 

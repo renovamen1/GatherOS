@@ -12,7 +12,13 @@ const PREFS_FILE = 'prefs.json';
 const DEFAULT_PREFS = {
   autoNameOnSave: true,
   semanticSearch: true,
+  aiProvider: 'openai',
   openAIApiKey: '',
+  geminiApiKey: '',
+  geminiVisionModel: 'gemini-3.1-flash-lite',
+  geminiFallbackModel: 'gemini-3.5-flash',
+  geminiSecondFallbackModel: 'gemini-2.5-flash',
+  geminiImageModel: 'gemini-2.5-flash-image',
   // Theme: 'light' | 'dark' | 'system'. 'system' tracks the OS
   // preference via the renderer's matchMedia hook.
   theme: 'system',

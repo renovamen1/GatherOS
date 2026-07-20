@@ -850,6 +850,16 @@ function getSaveEmbeddings() {
     .all();
 }
 
+// Embeddings from different providers live in different vector spaces and
+// cannot be compared. Provider changes deliberately make every save eligible
+// for the existing re-index flow.
+function clearEmbeddings() {
+  const result = getDatabase()
+    .prepare('UPDATE saves SET embedding = NULL, ocr_text = NULL')
+    .run();
+  return result.changes;
+}
+
 function getSavesByIds(ids) {
   if (!Array.isArray(ids) || ids.length === 0) return [];
   const placeholders = ids.map(() => '?').join(',');
@@ -1426,6 +1436,7 @@ module.exports = {
   wipeLibrary,
   updateSave,
   getSaveEmbeddings,
+  clearEmbeddings,
   getSmartViewCounts,
   getSavesByIds,
   getUnindexedSaves,

@@ -1,7 +1,5 @@
-// Thin client for the GatherOS AI proxy. The Worker holds the master
-// OpenAI key and gates every call on a valid licensed session, so we
-// only need to forward the body shape OpenAI expects (chat / embed)
-// plus the bearer session token.
+// AI client. Hosted accounts use the GatherOS OpenAI proxy; personal keys can
+// use either OpenAI or Gemini directly.
 //
 // Each public helper signs the request with the current session token
 // (read on demand from licensing.js) and unwraps the proxy envelope
@@ -11,13 +9,42 @@ const fs = require('node:fs');
 const { API_BASE_URL } = require('../shared/licensing-config');
 const { getSessionToken } = require('./licensing');
 const OPENAI_BASE = 'https://api.openai.com/v1';
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const DEFAULT_GEMINI_VISION_MODEL = 'gemini-3.1-flash-lite';
+const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image';
+
+function getProvider() {
+  try { return require('./settings').getPref('aiProvider', 'openai') === 'gemini' ? 'gemini' : 'openai'; }
+  catch { return 'openai'; }
+}
+
+function getGeminiTextModels() {
+  try {
+    const settings = require('./settings');
+    return [
+      settings.getPref('geminiVisionModel', DEFAULT_GEMINI_VISION_MODEL),
+      settings.getPref('geminiFallbackModel', 'gemini-3.5-flash'),
+      settings.getPref('geminiSecondFallbackModel', 'gemini-2.5-flash'),
+    ].filter((model, index, all) => typeof model === 'string' && model.trim() && all.indexOf(model) === index);
+  } catch {
+    return [DEFAULT_GEMINI_VISION_MODEL];
+  }
+}
+
+function getGeminiImageModel() {
+  try { return require('./settings').getPref('geminiImageModel', DEFAULT_GEMINI_IMAGE_MODEL); }
+  catch { return DEFAULT_GEMINI_IMAGE_MODEL; }
+}
 
 function getLocalApiKey() {
-  const envKey = process.env.GATHEROS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  const isGemini = getProvider() === 'gemini';
+  const envKey = isGemini
+    ? (process.env.GATHEROS_GEMINI_API_KEY || process.env.GEMINI_API_KEY)
+    : (process.env.GATHEROS_OPENAI_API_KEY || process.env.OPENAI_API_KEY);
   if (typeof envKey === 'string' && envKey.trim()) return envKey.trim();
   try {
     const settings = require('./settings');
-    const prefKey = settings.getPref('openAIApiKey', '');
+    const prefKey = settings.getPref(isGemini ? 'geminiApiKey' : 'openAIApiKey', '');
     if (typeof prefKey === 'string' && prefKey.trim()) return prefKey.trim();
   } catch {
     // no-op
@@ -28,7 +55,7 @@ function getLocalApiKey() {
 // Public so callers can short-circuit feature toggles without making
 // a network round-trip when the user isn't signed in yet.
 function hasSession() {
-  return !!getLocalApiKey() || !!getSessionToken();
+  return !!getLocalApiKey() || (getProvider() === 'openai' && !!getSessionToken());
 }
 
 async function postProxy(path, body) {
@@ -75,6 +102,44 @@ async function postOpenAI(path, body, apiKey) {
   return data;
 }
 
+async function postGemini(path, body, apiKey) {
+  const res = await fetch(`${GEMINI_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const reason = data?.error?.status || `http_${res.status}`;
+    const err = new Error(`Gemini ${reason}${data?.error?.message ? `: ${data.error.message}` : ''}`);
+    err.code = reason;
+    err.httpStatus = res.status;
+    throw err;
+  }
+  return data;
+}
+
+function isRetryableGeminiError(err) {
+  return ['RESOURCE_EXHAUSTED', 'UNAVAILABLE', 'INTERNAL'].includes(err?.code)
+    || Number(err?.httpStatus) >= 500;
+}
+
+async function generateGeminiText(body, apiKey) {
+  const models = getGeminiTextModels();
+  let lastError;
+  for (let i = 0; i < models.length; i += 1) {
+    try {
+      return await postGemini(`/models/${models[i]}:generateContent`, body, apiKey);
+    } catch (err) {
+      lastError = err;
+      if (!isRetryableGeminiError(err)) throw err;
+      if (i === models.length - 1) break;
+      console.warn(`[ai] Gemini model ${models[i]} unavailable; trying fallback ${models[i + 1]}`);
+    }
+  }
+  throw new Error(`All configured Gemini text models failed (${models.join(', ')}): ${lastError?.message || 'unknown error'}`);
+}
+
 // ── Image preprocessing helpers ────────────────────────────────────
 
 async function imageToDataUrl(filePath) {
@@ -91,8 +156,57 @@ async function imageToDataUrl(filePath) {
 
 // ── Chat / vision helpers ──────────────────────────────────────────
 
-async function chat({ messages, model = 'gpt-4o-mini', responseFormat, maxTokens }) {
+// Gemini normally honors responseMimeType, but it can still surround a JSON
+// object with a Markdown fence. Keep the application-level contract strict
+// while accepting that harmless presentation wrapper from either provider.
+function parseJsonResponse(content) {
+  const cleaned = String(content || '')
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+  try { return JSON.parse(cleaned); }
+  catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try { return JSON.parse(cleaned.slice(start, end + 1)); }
+      catch { /* fall through to the standard error */ }
+    }
+    throw new Error('AI response was not valid JSON');
+  }
+}
+
+async function chat({ messages, model = 'gpt-4o-mini', responseFormat, responseSchema, maxTokens }) {
   const localKey = getLocalApiKey();
+  if (localKey && getProvider() === 'gemini') {
+    const system = messages.find((message) => message.role === 'system')?.content;
+    const user = messages.find((message) => message.role === 'user')?.content;
+    const parts = (Array.isArray(user) ? user : [{ type: 'text', text: user }]).map((part) => {
+      if (part.type === 'image_url') {
+        const match = /^data:([^;]+);base64,(.+)$/.exec(part.image_url?.url || '');
+        if (!match) throw new Error('Gemini requires an inline base64 image');
+        return { inline_data: { mime_type: match[1], data: match[2] } };
+      }
+      return { text: part.text || '' };
+    });
+    const body = {
+      contents: [{ role: 'user', parts }],
+      generationConfig: { maxOutputTokens: maxTokens || 1024 },
+    };
+    if (system) body.system_instruction = { parts: [{ text: system }] };
+    if (responseFormat?.type === 'json_object') {
+      body.generationConfig.responseMimeType = 'application/json';
+      if (responseSchema) body.generationConfig.responseSchema = responseSchema;
+    }
+    const data = await generateGeminiText(body, localKey);
+    const content = data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('');
+    if (!content) {
+      const reason = data.candidates?.[0]?.finishReason || data.promptFeedback?.blockReason;
+      throw new Error(`No content in Gemini response${reason ? `: ${reason}` : ''}`);
+    }
+    return content;
+  }
   const body = { model, messages };
   if (responseFormat) body.response_format = responseFormat;
   if (maxTokens) body.max_tokens = maxTokens;
@@ -125,11 +239,14 @@ async function autoTagImage(filePath) {
       },
     ],
     responseFormat: { type: 'json_object' },
+    responseSchema: {
+      type: 'OBJECT',
+      properties: { tags: { type: 'ARRAY', items: { type: 'STRING' } } },
+      required: ['tags'],
+    },
     maxTokens: 120,
   });
-  let parsed;
-  try { parsed = JSON.parse(content); }
-  catch { throw new Error('AI response was not valid JSON'); }
+  const parsed = parseJsonResponse(content);
   const raw = Array.isArray(parsed.tags) ? parsed.tags : [];
   return raw
     .filter((t) => typeof t === 'string')
@@ -170,11 +287,18 @@ async function analyzeImage(filePath) {
       },
     ],
     responseFormat: { type: 'json_object' },
+    responseSchema: {
+      type: 'OBJECT',
+      properties: {
+        title: { type: 'STRING' },
+        description: { type: 'STRING' },
+        text: { type: 'STRING' },
+      },
+      required: ['title', 'description', 'text'],
+    },
     maxTokens: 800,
   });
-  let parsed;
-  try { parsed = JSON.parse(content); }
-  catch { throw new Error('AI response was not valid JSON'); }
+  const parsed = parseJsonResponse(content);
 
   const title = typeof parsed.title === 'string'
     ? parsed.title.trim().replace(/^["'`]+|["'`]+$/g, '').slice(0, 80)
@@ -221,11 +345,14 @@ async function generateImagePrompt(filePath) {
       },
     ],
     responseFormat: { type: 'json_object' },
+    responseSchema: {
+      type: 'OBJECT',
+      properties: { prompt: { type: 'STRING' } },
+      required: ['prompt'],
+    },
     maxTokens: 280,
   });
-  let parsed;
-  try { parsed = JSON.parse(content); }
-  catch { throw new Error('AI response was not valid JSON'); }
+  const parsed = parseJsonResponse(content);
   const prompt = typeof parsed.prompt === 'string'
     ? parsed.prompt.trim().replace(/^["'`]+|["'`]+$/g, '')
     : '';
@@ -238,6 +365,14 @@ async function embedText(text) {
   const localKey = getLocalApiKey();
   const trimmed = (text || '').trim();
   if (!trimmed) throw new Error('Cannot embed empty text');
+  if (localKey && getProvider() === 'gemini') {
+    const data = await postGemini('/models/gemini-embedding-2:embedContent', {
+      content: { parts: [{ text: trimmed.slice(0, 8000) }] },
+    }, localKey);
+    const vec = data.embedding?.values;
+    if (!Array.isArray(vec)) throw new Error('No embedding in Gemini response');
+    return vec;
+  }
   const data = localKey
     ? await postOpenAI('/embeddings', {
       model: 'text-embedding-3-small',
@@ -315,6 +450,20 @@ async function generateImage(prompt, { sourceFilePath, size } = {}) {
   const trimmed = (prompt || '').trim();
   if (!trimmed) throw new Error('Cannot generate from empty prompt');
   let data;
+  if (localKey && getProvider() === 'gemini') {
+    const parts = [{ text: trimmed.slice(0, 4000) }];
+    if (sourceFilePath) {
+      parts.unshift({ inline_data: { mime_type: 'image/jpeg', data: await imageToBase64(sourceFilePath) } });
+      parts[1].text += '\n\nPreserve the core composition and visual style of the source image.';
+    }
+    const data = await postGemini(`/models/${getGeminiImageModel()}:generateContent`, {
+      contents: [{ role: 'user', parts }],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+    }, localKey);
+    const image = data.candidates?.[0]?.content?.parts?.find((part) => part.inline_data?.data);
+    if (!image) throw new Error('No image in Gemini response');
+    return { bytes: Buffer.from(image.inline_data.data, 'base64'), quota: null };
+  }
   if (localKey) {
     const body = {
       model: 'gpt-image-1',
@@ -342,6 +491,20 @@ async function generateImage(prompt, { sourceFilePath, size } = {}) {
   };
 }
 
+async function testTextModel() {
+  const apiKey = getLocalApiKey();
+  if (getProvider() !== 'gemini' || !apiKey) {
+    throw new Error('Add a Gemini API key before testing a Gemini model');
+  }
+  const data = await generateGeminiText({
+    contents: [{ role: 'user', parts: [{ text: 'Reply with exactly: OK' }] }],
+    generationConfig: { maxOutputTokens: 8 },
+  }, apiKey);
+  const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim();
+  if (!text) throw new Error('Gemini returned no text');
+  return { ok: true, model: getGeminiTextModels()[0], text };
+}
+
 module.exports = {
   hasSession,
   autoTagImage,
@@ -350,4 +513,5 @@ module.exports = {
   generateImage,
   embedText,
   getUsage,
+  testTextModel,
 };

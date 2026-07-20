@@ -25,19 +25,19 @@ const SECTIONS = [
       'data with third parties.',
   },
   {
-    title: 'Your OpenAI key',
+    title: 'Your AI provider key',
     body:
-      'When you supply an OpenAI key, it’s stored in the macOS ' +
-      'Keychain (encrypted by the OS). It’s used only to authenticate ' +
-      'requests sent directly from your machine to api.openai.com. ' +
+      'When you supply an OpenAI or Gemini key, it’s stored locally on ' +
+      'your device and used only to authenticate requests to the provider ' +
+      'you selected. ' +
       'We never see it.',
   },
   {
-    title: 'AI features and OpenAI',
+    title: 'AI features',
     body:
       'When AI features are on, GatherOS sends image data and short ' +
-      'text snippets to OpenAI on your behalf. OpenAI handles that data ' +
-      'under their own terms. Toggle the features off and no calls are made.',
+      'text snippets to your selected provider, OpenAI or Gemini, on your behalf. ' +
+      'Toggle the features off and no calls are made.',
   },
   {
     title: 'Auto-updates',

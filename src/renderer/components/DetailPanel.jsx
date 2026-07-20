@@ -840,7 +840,7 @@ export default function DetailPanel({
             ].filter(Boolean).join(' ')}
             onClick={handleGeneratePrompt}
             disabled={promptGenerating}
-            title={aiConfigured ? 'Generate an image-generation prompt' : 'Configure OpenAI key to enable'}
+            title={aiConfigured ? 'Generate an image-generation prompt' : 'Configure an AI provider to enable'}
           >
             <span className={styles.autoTagIcon}>
               {aiConfigured ? <SparkleIcon /> : <LockIcon />}
@@ -973,7 +973,7 @@ export default function DetailPanel({
             className={[styles.autoTagBtn, autoTagging && styles.autoTagBtnLoading].filter(Boolean).join(' ')}
             onClick={handleAutoTag}
             disabled={autoTagging}
-            title={aiConfigured ? 'Auto-tag with AI' : 'Configure OpenAI key to enable'}
+            title={aiConfigured ? 'Auto-tag with AI' : 'Configure an AI provider to enable'}
           >
             <span className={styles.autoTagIcon}>
               {aiConfigured ? <SparkleIcon /> : <LockIcon />}

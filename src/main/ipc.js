@@ -5,7 +5,7 @@ const { spawn } = require('node:child_process');
 const {
   getAllSaves, getSave, deleteSave, restoreSave, permanentlyDeleteSave,
   emptyTrash, wipeLibrary, updateSave, insertSave,
-  getSaveEmbeddings, getSavesByIds, getUnindexedSaves, getUnindexedCount, getSmartViewCounts,
+  getSaveEmbeddings, getSavesByIds, getUnindexedSaves, getUnindexedCount, getSmartViewCounts, clearEmbeddings,
   filterByColor, findSimilarByPalette,
   getAllCollections, getAllCollectionsWithThumbs, getCollectionsForSave, getCollectionsContainingAll, createCollection, renameCollection, setCollectionParent,
   deleteCollection, reorderCollections, addSaveToCollection, removeSaveFromCollection,
@@ -39,6 +39,7 @@ const {
   generateImagePrompt,
   generateImage,
   getUsage: getAiUsage,
+  testTextModel,
 } = require('./openai');
 const { detectColorName } = require('./colorNames');
 
@@ -60,6 +61,10 @@ function cosineSim(a, b, len) {
 function bufferToFloat32(buf) {
   // SQLite returns a Buffer; reinterpret as Float32Array without copying.
   return new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+}
+
+function sameDimensions(a, b) {
+  return a.length === b.length;
 }
 
 // LRU-ish cache for embedding the current search query. Each
@@ -179,8 +184,10 @@ function registerIpcHandlers() {
       const scored = rows
         .map((row) => {
           const v = bufferToFloat32(row.embedding);
+          if (!sameDimensions(queryF32, v)) return null;
           return { id: row.id, score: cosineSim(queryF32, v, dim) };
         })
+        .filter(Boolean)
         .filter((r) => r.score >= MIN_SCORE)
         .sort((a, b) => b.score - a.score);
 
@@ -766,11 +773,24 @@ function registerIpcHandlers() {
     return usage || { ok: false };
   });
 
+  ipcMain.handle('ai:test-text-model', async () => {
+    try {
+      return await testTextModel();
+    } catch (err) {
+      return { ok: false, error: err.message || 'Model test failed' };
+    }
+  });
+
   ipcMain.handle('settings:get-prefs', () => settings.getPrefs());
 
   ipcMain.handle('settings:set-pref', (_e, payload = {}) => {
     if (!payload.name) return { ok: false, reason: 'no-name' };
+    const previousProvider = settings.getPref('aiProvider', 'openai');
     const result = settings.setPref(payload.name, payload.value);
+    if (result.ok && payload.name === 'aiProvider' && payload.value !== previousProvider) {
+      clearEmbeddings();
+      QUERY_EMBEDDING_CACHE.clear();
+    }
     // Side-effects: a couple of prefs need to push their new value to
     // wherever it's consumed in the main process (the renderer's
     // pref read happens on next mount, which is fine for everything
@@ -840,7 +860,8 @@ function registerIpcHandlers() {
         .filter((r) => r.id !== saveId)
         .map((row) => ({
           id: row.id,
-          score: cosineSim(a, bufferToFloat32(row.embedding), dim),
+          score: sameDimensions(a, bufferToFloat32(row.embedding))
+            ? cosineSim(a, bufferToFloat32(row.embedding), dim) : -1,
         }))
         .filter((r) => r.score >= 0.30)
         .sort((a, b) => b.score - a.score)
@@ -870,7 +891,8 @@ function registerIpcHandlers() {
       .filter((r) => r.id !== saveId)
       .map((row) => ({
         id: row.id,
-        score: cosineSim(a, bufferToFloat32(row.embedding), dim),
+        score: sameDimensions(a, bufferToFloat32(row.embedding))
+          ? cosineSim(a, bufferToFloat32(row.embedding), dim) : -1,
       }))
       // 0.30 cutoff — below that the suggestions read as random,
       // and the calling UI is happier rendering nothing than a row
