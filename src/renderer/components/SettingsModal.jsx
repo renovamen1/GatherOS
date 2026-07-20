@@ -658,13 +658,11 @@ export default function SettingsModal({
   onRenameLibrary,
   onDeleteLibrary,
 }) {
-  // Whether the licensing session is present — proxy-mode AI is
-  // gated on it, not on a per-user OpenAI key. AppGate already shows
-  // the signin screen when this is false, so for the most part this
-  // flag stays true throughout Settings.
+  // Whether AI is configured — true when either a local API key exists
+  // or a licensing session is present.
   const [hasAi, setHasAi] = useState(false);
   const [usage, setUsage] = useState(null);
-  const [prefs, setPrefs] = useState({ autoNameOnSave: true, theme: 'light' });
+  const [prefs, setPrefs] = useState({ autoNameOnSave: true, theme: 'light', openAIApiKey: '' });
   const [unindexed, setUnindexed] = useState(0);
   const [reindexState, setReindexState] = useState({ running: false, processed: 0, total: 0 });
   const [exportState, setExportState] = useState({ running: false, message: null });
@@ -792,6 +790,14 @@ export default function SettingsModal({
         ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
         : value;
       document.documentElement.setAttribute('data-theme', resolved);
+    }
+
+    if (name === 'openAIApiKey') {
+      const configured = await window.moodmark.ai.hasSession();
+      setHasAi(!!configured);
+      onConfiguredChange?.(!!configured);
+      const latestUsage = await window.moodmark.ai.usage();
+      setUsage(latestUsage && latestUsage.ok ? latestUsage : null);
     }
 
     onPrefsChange?.(updated);
@@ -1234,20 +1240,44 @@ export default function SettingsModal({
             <div className={styles.page}>
               <p className={styles.sectionHint}>
                 Auto-tagging, auto-titles, semantic search, and image-prompt
-                generation run on a managed OpenAI integration that ships
-                with your subscription — no API key to set up.
+                generation use OpenAI. Add your own key below for a personal
+                fork, or sign in to use the hosted integration.
               </p>
+
+              <div className={styles.field}>
+                <label className={styles.fieldLabel} htmlFor="openai-api-key">OpenAI API key</label>
+                <input
+                  id="openai-api-key"
+                  type="password"
+                  className={styles.input}
+                  value={prefs.openAIApiKey || ''}
+                  placeholder="sk-..."
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(e) => setPrefs((prev) => ({ ...prev, openAIApiKey: e.target.value }))}
+                  onBlur={(e) => updatePref('openAIApiKey', e.target.value)}
+                />
+                <span className={styles.fieldHint}>
+                  Stored locally on this device and used only for your own API requests.
+                </span>
+              </div>
 
               {!hasAi && (
                 <div className={styles.statusRow}>
                   <span className={`${styles.status} ${styles.statusMuted}`}>
-                    Sign in to unlock AI features
+                    Add an API key or sign in to enable AI features
                   </span>
                 </div>
               )}
 
-              {hasAi && usage && (
+              {hasAi && usage && !usage.byok && (
                 <UsageMeter usage={usage} />
+              )}
+
+              {hasAi && usage?.byok && (
+                <div className={styles.sectionHint}>
+                  Using your own key. Usage limits are managed by your OpenAI account.
+                </div>
               )}
 
               <div className={styles.divider} />
@@ -1660,4 +1690,3 @@ function formatBackupSize(bytes) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-

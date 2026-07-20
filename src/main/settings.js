@@ -12,6 +12,7 @@ const PREFS_FILE = 'prefs.json';
 const DEFAULT_PREFS = {
   autoNameOnSave: true,
   semanticSearch: true,
+  openAIApiKey: '',
   // Theme: 'light' | 'dark' | 'system'. 'system' tracks the OS
   // preference via the renderer's matchMedia hook.
   theme: 'system',

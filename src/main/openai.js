@@ -10,11 +10,25 @@
 const fs = require('node:fs');
 const { API_BASE_URL } = require('../shared/licensing-config');
 const { getSessionToken } = require('./licensing');
+const OPENAI_BASE = 'https://api.openai.com/v1';
+
+function getLocalApiKey() {
+  const envKey = process.env.GATHEROS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  if (typeof envKey === 'string' && envKey.trim()) return envKey.trim();
+  try {
+    const settings = require('./settings');
+    const prefKey = settings.getPref('openAIApiKey', '');
+    if (typeof prefKey === 'string' && prefKey.trim()) return prefKey.trim();
+  } catch {
+    // no-op
+  }
+  return null;
+}
 
 // Public so callers can short-circuit feature toggles without making
 // a network round-trip when the user isn't signed in yet.
 function hasSession() {
-  return !!getSessionToken();
+  return !!getLocalApiKey() || !!getSessionToken();
 }
 
 async function postProxy(path, body) {
@@ -28,7 +42,7 @@ async function postProxy(path, body) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      Authorization: ['Bearer', token].join(' '),
     },
     body: JSON.stringify(body),
   });
@@ -36,6 +50,25 @@ async function postProxy(path, body) {
   if (!res.ok || !data.ok) {
     const reason = data.error || `http_${res.status}`;
     const err = new Error(`AI proxy ${reason}${data.detail ? `: ${data.detail}` : ''}`);
+    err.code = reason;
+    throw err;
+  }
+  return data;
+}
+
+async function postOpenAI(path, body, apiKey) {
+  const res = await fetch(`${OPENAI_BASE}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: ['Bearer', apiKey].join(' '),
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const reason = data?.error?.code || data?.error?.type || `http_${res.status}`;
+    const err = new Error(`OpenAI ${reason}${data?.error?.message ? `: ${data.error.message}` : ''}`);
     err.code = reason;
     throw err;
   }
@@ -59,10 +92,13 @@ async function imageToDataUrl(filePath) {
 // ── Chat / vision helpers ──────────────────────────────────────────
 
 async function chat({ messages, model = 'gpt-4o-mini', responseFormat, maxTokens }) {
+  const localKey = getLocalApiKey();
   const body = { model, messages };
   if (responseFormat) body.response_format = responseFormat;
   if (maxTokens) body.max_tokens = maxTokens;
-  const data = await postProxy('/ai/chat', body);
+  const data = localKey
+    ? await postOpenAI('/chat/completions', body, localKey)
+    : await postProxy('/ai/chat', body);
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error('No content in proxy response');
   return content;
@@ -199,11 +235,17 @@ async function generateImagePrompt(filePath) {
 // ── Embedding ──────────────────────────────────────────────────────
 
 async function embedText(text) {
+  const localKey = getLocalApiKey();
   const trimmed = (text || '').trim();
   if (!trimmed) throw new Error('Cannot embed empty text');
-  const data = await postProxy('/ai/embed', {
-    input: trimmed.slice(0, 8000),
-  });
+  const data = localKey
+    ? await postOpenAI('/embeddings', {
+      model: 'text-embedding-3-small',
+      input: trimmed.slice(0, 8000),
+    }, localKey)
+    : await postProxy('/ai/embed', {
+      input: trimmed.slice(0, 8000),
+    });
   const vec = data.data?.[0]?.embedding;
   if (!Array.isArray(vec)) throw new Error('No embedding in proxy response');
   return vec;
@@ -212,11 +254,25 @@ async function embedText(text) {
 // ── Usage / quota ──────────────────────────────────────────────────
 
 async function getUsage() {
+  const localKey = getLocalApiKey();
+  if (localKey) {
+    return {
+      ok: true,
+      byok: true,
+      total_tokens: 0,
+      soft_cap: 0,
+      over_cap: false,
+      request_count: 0,
+      image_count: 0,
+      image_soft_cap: 0,
+      image_over_cap: false,
+    };
+  }
   const token = getSessionToken();
   if (!token) return null;
   try {
     const res = await fetch(`${API_BASE_URL}/ai/usage`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: ['Bearer', token].join(' ') },
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) return null;
@@ -255,16 +311,30 @@ async function imageToBase64(filePath) {
 // '1024x1536'); model + quality stay locked server-side so the
 // per-image cost curve is predictable.
 async function generateImage(prompt, { sourceFilePath, size } = {}) {
+  const localKey = getLocalApiKey();
   const trimmed = (prompt || '').trim();
   if (!trimmed) throw new Error('Cannot generate from empty prompt');
-  const body = { prompt: trimmed.slice(0, 4000) };
-  if (sourceFilePath) {
-    body.image_b64 = await imageToBase64(sourceFilePath);
-    body.image_mime = 'image/jpeg';
+  let data;
+  if (localKey) {
+    const body = {
+      model: 'gpt-image-1',
+      prompt: trimmed.slice(0, 4000),
+      size: size || '1024x1024',
+    };
+    if (sourceFilePath) {
+      body.prompt = `${body.prompt}\n\nPreserve the core composition and visual style of the source image.`;
+    }
+    data = await postOpenAI('/images/generations', body, localKey);
+  } else {
+    const body = { prompt: trimmed.slice(0, 4000) };
+    if (sourceFilePath) {
+      body.image_b64 = await imageToBase64(sourceFilePath);
+      body.image_mime = 'image/jpeg';
+    }
+    if (size) body.size = size;
+    data = await postProxy('/ai/image', body);
   }
-  if (size) body.size = size;
-  const data = await postProxy('/ai/image', body);
-  const b64 = data.image?.b64_json;
+  const b64 = data.image?.b64_json || data.data?.[0]?.b64_json;
   if (!b64) throw new Error('No image in proxy response');
   return {
     bytes: Buffer.from(b64, 'base64'),
