@@ -487,16 +487,18 @@ function createMainWindow() {
 
 function buildTrayIcon() {
   const iconPath = path.join(__dirname, '..', '..', 'build', 'tray-icon.png');
-  const icon = nativeImage.createFromPath(iconPath);
-  if (icon.isEmpty()) {
-    console.error('Tray icon not found at', iconPath);
+  try {
+    const buf = fs.readFileSync(iconPath);
+    const icon = nativeImage.createFromBuffer(buf);
+    if (icon.isEmpty()) {
+      console.error('Tray icon buffer produced empty image from', iconPath);
+    }
+    icon.setTemplateImage(true);
+    return icon;
+  } catch (err) {
+    console.error('Failed to load tray icon from', iconPath, err);
+    return nativeImage.createEmpty();
   }
-  // Mark as a template image so macOS handles the colour treatment:
-  // black in light mode, white in dark mode, dimmed when the menu bar
-  // is inactive. Requires the PNG itself to be pure black + alpha —
-  // any colour in the source bleeds through unchanged.
-  icon.setTemplateImage(true);
-  return icon;
 }
 
 function buildTrayMenuTemplate() {
