@@ -1,9 +1,0 @@
-{
-  "name": "com.gatheros.app",
-  "description": "GatherOS Native Messaging Bridge",
-  "path": "/Users/prabinthakur/code101/GatherOS/native-host/index.js",
-  "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension:jflmnonpoapjncoeankehcmenldecojk"
-  ]
-}
