@@ -225,6 +225,7 @@ contextBridge.exposeInMainWorld('moodmark', {
     unindexedCount: () => ipcRenderer.invoke('ai:unindexed-count'),
     reindexLibrary: () => ipcRenderer.invoke('ai:reindex-library'),
     similarSaves: (saveId, limit) => ipcRenderer.invoke('ai:similar-saves', saveId, limit),
+    testTextModel: () => ipcRenderer.invoke('ai:test-text-model'),
   },
   updater: {
     install: () => ipcRenderer.invoke('updater:install'),

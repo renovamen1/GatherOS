@@ -139,7 +139,7 @@ const {
 } = require('./capture');
 const extensionServer = require('./extension-server');
 const { showToast, destroyToastWindow } = require('./toast-window');
-const { setSaveNotifier, setDuplicateNotifier, setNeedsUpgradeNotifier, setBookmarkNotifier, setBookmarkFailedNotifier, setErrorNotifier, setTrayRefresher, setSaveOpener, notifyError } = require('./notify');
+const { setSaveNotifier, setDuplicateNotifier, setBookmarkNotifier, setBookmarkFailedNotifier, setErrorNotifier, setTrayRefresher, setSaveOpener, notifyError } = require('./notify');
 const { initUpdater } = require('./updater');
 const { getInitialOptions: getWindowInitialOptions, track: trackWindowState } = require('./window-state');
 const libraryRegistry = require('./library-registry');
@@ -199,13 +199,6 @@ async function waitForMainWindowReady() {
 async function drainDockOpenQueue() {
   if (!dockOpenReady || dockOpenQueue.length === 0) return;
   await waitForMainWindowReady();
-  // Free tier: new saves require an upgrade. Drop the queued drops and
-  // surface the prompt rather than silently saving past the gate.
-  if (!require('./entitlement').canCreateSave()) {
-    dockOpenQueue.length = 0;
-    try { notifyNeedsUpgrade({ source: 'save' }); } catch { /* ignore */ }
-    return;
-  }
   const { saveImageFromFile } = require('./storage');
   const { insertSave } = require('./db');
   while (dockOpenQueue.length > 0) {
@@ -308,11 +301,6 @@ app.on('open-url', (event, url) => {
 async function drainDockOpenUrlQueue() {
   if (!dockOpenReady || dockOpenUrlQueue.length === 0) return;
   await waitForMainWindowReady();
-  if (!require('./entitlement').canCreateSave()) {
-    dockOpenUrlQueue.length = 0;
-    try { notifyNeedsUpgrade({ source: 'save' }); } catch { /* ignore */ }
-    return;
-  }
   const { saveImageFromUrl } = require('./storage');
   const { insertSave } = require('./db');
   const { captureUrl } = require('./urlCapture');
@@ -505,18 +493,6 @@ function notifyDuplicateInRenderer(existing) {
   if (!existing) return;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('save:duplicate', existing);
-  }
-}
-
-// A fire-and-forget save (global-hotkey screenshot) was blocked by the
-// free tier. Bring the window forward and let the renderer pop the
-// upgrade prompt — otherwise the capture would silently no-op.
-function notifyNeedsUpgrade(context) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-    mainWindow.webContents.send('save:needs-upgrade', context || {});
   }
 }
 
@@ -805,10 +781,6 @@ function createTray() {
   });
 
   tray.on('drop-files', async (_e, files) => {
-    if (!require('./entitlement').canCreateSave()) {
-      try { notifyNeedsUpgrade({ source: 'save' }); } catch { /* ignore */ }
-      return;
-    }
     for (const file of files) {
       try {
         const imgData = await saveImageFromFile(file);
@@ -1031,7 +1003,6 @@ app.whenReady().then(() => {
   // tray's "bring the app forward and open this save" flow.
   setSaveOpener(openSaveFromTray);
   setDuplicateNotifier(notifyDuplicateInRenderer);
-  setNeedsUpgradeNotifier(notifyNeedsUpgrade);
   setBookmarkNotifier(notifyBookmarkSaved);
   setBookmarkFailedNotifier(notifyBookmarkFailed);
   // Generic error line for fire-and-forget paths (dock drops etc.) —

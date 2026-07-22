@@ -46,18 +46,7 @@ const {
   getUsage: getAiUsage,
 } = require('./openai');
 const { detectColorName } = require('./colorNames');
-const { canCreateSave } = require('./entitlement');
-const { notifyNeedsUpgrade } = require('./notify');
 
-// Free-tier save guard for IPC handlers. Returns true (and surfaces the
-// upgrade prompt in the renderer) when a new save must be blocked. The
-// caller returns its own needsUpgrade-shaped result so the renderer's
-// call site stays happy. Fails OPEN via canCreateSave().
-function blockNewSave(source) {
-  if (canCreateSave()) return false;
-  try { notifyNeedsUpgrade({ source: source || 'save' }); } catch { /* ignore */ }
-  return true;
-}
 
 // Dot product over pre-normalized vectors (the embedding cache stores
 // unit vectors) — equivalent to cosine at half the arithmetic.
@@ -344,7 +333,6 @@ function registerIpcHandlers() {
   ipcMain.handle('saves:update', (_e, payload) => updateSave(payload));
 
   ipcMain.handle('saves:drop-file', async (_e, filePath) => {
-    if (blockNewSave('save')) return { needsUpgrade: true };
     const imgData = await saveImageFromFile(filePath);
     if (imgData.duplicateOf) {
       notifyDuplicate(imgData.existing);
@@ -360,7 +348,6 @@ function registerIpcHandlers() {
   // renderer hands us the bytes and we run them through the same
   // saveImageFromBuffer → insertSave pipeline (dedup, palette, etc.).
   ipcMain.handle('saves:paste-image', async (_e, payload) => {
-    if (blockNewSave('save')) return { needsUpgrade: true };
     const { bytes, ext } = payload || {};
     if (!bytes || !bytes.length) throw new Error('paste-image called without image bytes');
     const buffer = Buffer.from(bytes);
@@ -378,7 +365,6 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('saves:drop-zip', async (_e, zipPath) => {
-    if (blockNewSave('save')) return { ok: false, needsUpgrade: true };
     if (!zipPath) throw new Error('drop-zip called without a path');
     try {
       const counts = await ingestZip(zipPath);
@@ -425,7 +411,6 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('saves:capture-url', async (_e, url) => {
-    if (blockNewSave('save')) return { ok: false, needsUpgrade: true };
     if (typeof url !== 'string' || !url.trim()) {
       return { ok: false, error: 'missing_url' };
     }
@@ -449,7 +434,6 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('saves:drop-url', async (_e, payload) => {
-    if (blockNewSave('save')) return { needsUpgrade: true };
     const candidates = Array.isArray(payload?.urls)
       ? payload.urls
       : Array.isArray(payload)
@@ -1219,6 +1203,13 @@ function registerIpcHandlers() {
     } finally {
       event.sender.send('save:indexing-end', saveId);
     }
+  });
+
+  // Test the configured text model with a lightweight ping. Returns
+  // { ok, model, latency } or { ok: false, error }.
+  ipcMain.handle('ai:test-text-model', async () => {
+    const { testTextModel } = require('./openai');
+    return testTextModel();
   });
 
 

@@ -1,7 +1,5 @@
-// Plain-JSON preferences store. AI key storage was retired when the
-// app moved from BYOK to a server-proxied OpenAI integration; the
-// licensing session token (handled in licensing.js) is the only
-// credential the renderer cares about now.
+// Plain-JSON preferences store. Stores AI provider keys (BYOK) and
+// all app preferences as a flat JSON file in userData.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -56,6 +54,15 @@ const DEFAULT_PREFS = {
   // clock runs, then a soft free tier (existing saves stay usable, new
   // saves + pro features prompt to upgrade). null until first launch.
   trialStartedAt: null,
+
+  // ── AI provider (BYOK) ──────────────────────────────────────
+  aiProvider: 'openai',            // 'openai' | 'gemini'
+  openAIApiKey: null,              // user's own OpenAI API key
+  geminiApiKey: null,              // Google AI Studio API key
+  geminiVisionModel: 'gemini-2.0-flash',
+  geminiFallbackModel: 'gemini-2.0-flash-lite',
+  geminiSecondFallbackModel: null,
+  geminiImageModel: 'gemini-2.0-flash',
 };
 
 function prefsFilePath() {

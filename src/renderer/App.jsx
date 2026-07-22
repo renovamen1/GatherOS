@@ -825,6 +825,14 @@ export default function App({ entitlement } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Re-check AI session whenever Settings closes — the user may have
+  // configured a local API key while in the modal.
+  useEffect(() => {
+    if (!settingsOpen) {
+      window.moodmark.ai.hasSession().then(setAiConfigured);
+    }
+  }, [settingsOpen]);
+
   // Starter-pack lifecycle. Install on every walkthrough start
   // (idempotent — ingestZip dedups by content hash, so re-running
   // it on an already-installed library is a no-op). Reload on

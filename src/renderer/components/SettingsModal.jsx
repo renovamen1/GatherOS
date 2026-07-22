@@ -852,6 +852,16 @@ export default function SettingsModal({
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [account, setAccount] = useState(null);
   const [portalState, setPortalState] = useState({ running: false, message: null });
+  const [aiProvider, setAiProvider] = useState('openai');
+  const [openAIApiKey, setOpenAIApiKey] = useState('');
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [geminiModels, setGeminiModels] = useState({
+    visionModel: 'gemini-2.0-flash',
+    fallbackModel: 'gemini-2.0-flash-lite',
+    secondFallbackModel: '',
+    imageModel: 'gemini-2.0-flash',
+  });
+  const [testModelState, setTestModelState] = useState({ running: false, result: null, error: null });
   const appVersion = window.moodmark?.app?.version || '';
 
   // Local-trial / free state for the Account page status block. The
@@ -873,8 +883,14 @@ export default function SettingsModal({
   // when the user is signed in (a session token exists) AND server-
   // entitled. A signed-in local-trial user gets an upgrade prompt instead
   // of controls that would silently 402 on every call.
+  // AI features are usable when:
+  //   - A proxy session exists + server-entitled, OR
+  //   - A local API key is configured (BYOK)
   const aiEntitled = !!(ent?.paid || ent?.serverTrialing);
-  const aiUsable = hasAi && aiEntitled;
+  const hasLocalKey = aiProvider === 'gemini'
+    ? !!geminiApiKey
+    : !!openAIApiKey;
+  const aiUsable = hasAi && (aiEntitled || hasLocalKey);
 
   async function handleWipeLibrary() {
     if (wipeState.running) return;
@@ -934,6 +950,16 @@ export default function SettingsModal({
       setUsage(u && u.ok ? u : null);
       setPrefs(p);
       setUnindexed(count || 0);
+      // AI provider (BYOK) settings
+      setAiProvider(p.aiProvider || 'openai');
+      setOpenAIApiKey(p.openAIApiKey || '');
+      setGeminiApiKey(p.geminiApiKey || '');
+      setGeminiModels({
+        visionModel: p.geminiVisionModel || 'gemini-2.0-flash',
+        fallbackModel: p.geminiFallbackModel || 'gemini-2.0-flash-lite',
+        secondFallbackModel: p.geminiSecondFallbackModel || '',
+        imageModel: p.geminiImageModel || 'gemini-2.0-flash',
+      });
     });
     // Stale transient feedback (the "Erased X saves" / "Exported to
     // …" / etc. lines) shouldn't survive a close + reopen — reset
@@ -999,15 +1025,6 @@ export default function SettingsModal({
   }
 
   async function togglePref(name) {
-    // The two AI toggles (autoNameOnSave / semanticSearch) drive the
-    // metered proxy, so flipping them on only means anything once the
-    // user is signed in and entitled. For a non-entitled user, send them
-    // to upgrade instead of persisting a pref that can't take effect.
-    if ((name === 'autoNameOnSave' || name === 'semanticSearch') && !aiUsable) {
-      onClose?.();
-      requestUpgrade('ai');
-      return;
-    }
     const next = !prefs[name];
     const updated = { ...prefs, [name]: next };
     setPrefs(updated);
@@ -1015,8 +1032,21 @@ export default function SettingsModal({
     onPrefsChange?.(updated);
   }
 
-  // Generic pref setter — used by the new Appearance / Defaults /
-  // Capture / Updates / Trash-retention controls below.
+  async function handleTestTextModel() {
+    setTestModelState({ running: true, result: null, error: null });
+    try {
+      const result = await window.moodmark.ai.testTextModel();
+      if (result?.ok) {
+        setTestModelState({ running: false, result, error: null });
+      } else {
+        setTestModelState({ running: false, result: null, error: result?.error || 'Test failed' });
+      }
+    } catch (err) {
+      setTestModelState({ running: false, result: null, error: err.message || 'Test failed' });
+    }
+    setTimeout(() => setTestModelState({ running: false, result: null, error: null }), 5000);
+  }
+
   async function updatePref(name, value) {
     const updated = { ...prefs, [name]: value };
     setPrefs(updated);
@@ -1525,38 +1555,181 @@ export default function SettingsModal({
             <div className={styles.page}>
               <p className={styles.sectionHint}>
                 Auto-tagging, auto-titles, semantic search, and image-prompt
-                generation run on a managed OpenAI integration that ships
-                with your subscription — no API key to set up.
+                generation use an AI provider. Choose OpenAI (with your own key
+                or the managed proxy) or Gemini (BYOK).
               </p>
 
-              {!hasAi && (
-                <div className={styles.statusRow}>
-                  <span className={`${styles.status} ${styles.statusMuted}`}>
-                    Sign in to unlock AI features
-                  </span>
-                </div>
-              )}
+              {/* ── Provider selector ──────────────────────────── */}
+              <div className={styles.field}>
+                <label className={styles.fieldLabel}>AI provider</label>
+                <select
+                  className={styles.select}
+                  value={aiProvider}
+                  onChange={async (e) => {
+                    const v = e.target.value;
+                    setAiProvider(v);
+                    await updatePref('aiProvider', v);
+                  }}
+                >
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Gemini</option>
+                </select>
+              </div>
 
-              {/* Signed in but not on a paid/trialing subscription — the
-                  local trial doesn't cover the metered AI proxy, so point
-                  the user at upgrade rather than showing controls that
-                  would fail on every call. */}
-              {hasAi && !aiEntitled && (
-                <div className={styles.reindexBox}>
-                  <div className={styles.reindexCopy}>
-                    <strong>AI features are part of a subscription</strong>
-                    <span className={styles.toggleSub}>
-                      Auto-titles, visual search, and indexing run on the
-                      managed OpenAI integration. Subscribe to turn them on.
-                    </span>
-                  </div>
+              {/* ── API key input ──────────────────────────────── */}
+              <div className={styles.field}>
+                <label className={styles.fieldLabel}>
+                  {aiProvider === 'gemini' ? 'Gemini API key' : 'OpenAI API key'}
+                </label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="password"
+                    className={styles.tagSearch}
+                    placeholder={aiProvider === 'gemini'
+                      ? 'AIza…'
+                      : 'sk-…'}
+                    value={aiProvider === 'gemini' ? geminiApiKey : openAIApiKey}
+                    onChange={(e) => {
+                      if (aiProvider === 'gemini') setGeminiApiKey(e.target.value);
+                      else setOpenAIApiKey(e.target.value);
+                    }}
+                    style={{ flex: 1 }}
+                  />
                   <button
                     type="button"
                     className={`${styles.btn} ${styles.btnPrimary}`}
-                    onClick={() => { onClose?.(); requestUpgrade('ai'); }}
+                    onClick={async () => {
+                      if (aiProvider === 'gemini') {
+                        await updatePref('geminiApiKey', geminiApiKey);
+                      } else {
+                        await updatePref('openAIApiKey', openAIApiKey);
+                      }
+                      const sessionExists = await window.moodmark.ai.hasSession();
+                      setHasAi(!!sessionExists);
+                      onConfiguredChange?.(!!sessionExists);
+                    }}
                   >
-                    Upgrade
+                    Save
                   </button>
+                </div>
+                <span className={styles.fieldHint}>
+                  {aiProvider === 'gemini'
+                    ? 'Get a key at ai.google.dev. Calls go directly to Google.'
+                    : 'Get a key at platform.openai.com. Calls go directly to OpenAI.'}
+                </span>
+              </div>
+
+              {/* ── BYOK status banner ─────────────────────────── */}
+              {hasLocalKey && (
+                <div className={styles.reindexBox} style={{ marginBottom: 16 }}>
+                  <div className={styles.reindexCopy}>
+                    <strong>Using your own API key</strong>
+                    <span className={styles.toggleSub}>
+                      Calls go directly to {aiProvider === 'gemini' ? 'Google' : 'OpenAI'},
+                      not through the proxy.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Gemini model config ────────────────────────── */}
+              {aiProvider === 'gemini' && (
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Gemini models</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span className={styles.toggleLabel} style={{ minWidth: 120 }}>Vision / text</span>
+                      <input
+                        type="text"
+                        className={styles.tagSearch}
+                        placeholder="gemini-2.0-flash"
+                        value={geminiModels.visionModel}
+                        onChange={(e) => setGeminiModels((s) => ({ ...s, visionModel: e.target.value }))}
+                        onBlur={async () => { await updatePref('geminiVisionModel', geminiModels.visionModel); }}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span className={styles.toggleLabel} style={{ minWidth: 120 }}>Fallback</span>
+                      <input
+                        type="text"
+                        className={styles.tagSearch}
+                        placeholder="gemini-2.0-flash-lite"
+                        value={geminiModels.fallbackModel}
+                        onChange={(e) => setGeminiModels((s) => ({ ...s, fallbackModel: e.target.value }))}
+                        onBlur={async () => { await updatePref('geminiFallbackModel', geminiModels.fallbackModel); }}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span className={styles.toggleLabel} style={{ minWidth: 120 }}>2nd fallback</span>
+                      <input
+                        type="text"
+                        className={styles.tagSearch}
+                        placeholder="optional"
+                        value={geminiModels.secondFallbackModel}
+                        onChange={(e) => setGeminiModels((s) => ({ ...s, secondFallbackModel: e.target.value }))}
+                        onBlur={async () => { await updatePref('geminiSecondFallbackModel', geminiModels.secondFallbackModel); }}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span className={styles.toggleLabel} style={{ minWidth: 120 }}>Image gen</span>
+                      <input
+                        type="text"
+                        className={styles.tagSearch}
+                        placeholder="gemini-2.0-flash"
+                        value={geminiModels.imageModel}
+                        onChange={(e) => setGeminiModels((s) => ({ ...s, imageModel: e.target.value }))}
+                        onBlur={async () => { await updatePref('geminiImageModel', geminiModels.imageModel); }}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      className={`${styles.btn} ${styles.btnPrimary}`}
+                      onClick={handleTestTextModel}
+                      disabled={testModelState.running || !geminiApiKey}
+                    >
+                      {testModelState.running ? 'Testing…' : 'Test connection'}
+                    </button>
+                    {testModelState.result?.ok && (
+                      <span className={styles.fieldHint} style={{ color: 'var(--color-success, #16a34a)' }}>
+                        OK ({testModelState.result.latency}ms)
+                      </span>
+                    )}
+                    {testModelState.error && (
+                      <span className={styles.fieldHint} style={{ color: 'var(--color-danger, #dc2626)' }}>
+                        {testModelState.error}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── OpenAI test button (when using BYOK) ──────── */}
+              {aiProvider === 'openai' && openAIApiKey && (
+                <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className={`${styles.btn} ${styles.btnPrimary}`}
+                    onClick={handleTestTextModel}
+                    disabled={testModelState.running}
+                  >
+                    {testModelState.running ? 'Testing…' : 'Test connection'}
+                  </button>
+                  {testModelState.result?.ok && (
+                    <span className={styles.fieldHint} style={{ color: 'var(--color-success, #16a34a)' }}>
+                      OK ({testModelState.result.latency}ms)
+                    </span>
+                  )}
+                  {testModelState.error && (
+                    <span className={styles.fieldHint} style={{ color: 'var(--color-danger, #dc2626)' }}>
+                      {testModelState.error}
+                    </span>
+                  )}
                 </div>
               )}
 
